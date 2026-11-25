@@ -1,0 +1,17 @@
+# EDB CloudNativePG Operator, cluster-wide install through the default
+# "global-operators" OperatorGroup of openshift-operators (no OperatorGroup created here).
+# Package, channel and catalog follow the official EDB OpenShift documentation
+# (postgres_for_kubernetes / openshift, "Cluster-wide installation with oc").
+# Channel "fast" always points to the latest patch of the latest minor release.
+# No startingCSV: OLM installs the head of the channel and manages upgrades.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: cloud-native-postgresql
+  namespace: openshift-operators
+spec:
+  name: cloud-native-postgresql
+  channel: fast
+  source: certified-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic

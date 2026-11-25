@@ -1,0 +1,46 @@
+# Helm values for the MinIO Community Server chart (minio/minio 5.4.0).
+# Same configuration for OpenShift Local (CRC) and standard OpenShift.
+# Root credentials are NOT set here: they live in the Secret below, managed by install-minio.sh.
+
+# Multi-arch images (amd64 and arm64).
+image:
+  repository: dappros/minio
+  tag: RELEASE.2025-09-07T16-13-09Z
+mcImage:
+  repository: netiedge/minio-mc
+  tag: RELEASE.2025-01-17T23-25-50Z
+
+mode: standalone
+replicas: 1
+
+# Secret with keys rootUser and rootPassword (created by install-minio.sh).
+existingSecret: minio-root-credentials
+
+persistence:
+  enabled: true
+  size: 10Gi
+
+# Let the OpenShift restricted-v2 SCC assign UID/fsGroup; also stops the chart creating its own SCC.
+securityContext:
+  enabled: false
+
+# ReadWriteOnce volume: stop the old pod before starting the new one.
+deploymentUpdate:
+  type: Recreate
+
+service:
+  type: ClusterIP
+consoleService:
+  type: ClusterIP
+
+resources:
+  requests:
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Created by the chart's post-install job.
+buckets:
+  - name: cnpg
+    policy: none
+    purge: false

@@ -1,0 +1,6 @@
+# Generated manifests (rendered from templates/), except the placeholder
+manifests/*
+!manifests/.gitkeep
+
+# Local secrets (copy from .env.example)
+.env
