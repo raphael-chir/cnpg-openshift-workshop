@@ -16,7 +16,7 @@ Administrator scripts run from macOS (Apple Silicon) or Linux (amd64 or arm64).
 | Prerequisite checker (`setup/prereq.sh`) | implemented |
 | EDB operator, MinIO and Dev Spaces installation | implemented |
 | EDB CLI plugin installation | implemented |
-| Participant preparation (`setup/prepare-participant.sh`) | **not implemented** (reports "Not implemented") |
+| Participant provisioning (`setup/prepare-participant.sh`) | implemented (HTPasswd users, projects, admin role) |
 | Devfile, scenarios, templates | placeholders |
 
 ## Requirements
@@ -24,7 +24,8 @@ Administrator scripts run from macOS (Apple Silicon) or Linux (amd64 or arm64).
 - `oc`, logged in to the target cluster (`oc login`). The install scripts act on the **current context**
   and print the cluster and user before changing anything.
 - Cluster-admin privileges for the administrator scripts.
-- `helm` (MinIO installation) and `curl` (CLI installation).
+- `helm` (MinIO installation), `curl` (CLI installation) and `htpasswd` (participant provisioning; included in macOS,
+  package `httpd-tools` or `apache2-utils` on Linux).
 - Outbound access to `raw.githubusercontent.com` and `github.com` (CLI plugin), `charts.min.io` (MinIO chart),
   Docker Hub (MinIO images) and `docker.enterprisedb.com` (EDB images). Mirrored or air-gapped clusters are not covered.
 - A default StorageClass.
@@ -63,10 +64,40 @@ All scripts are safe to run again. Each prints its target and results through `l
 
 ## Participant workflow
 
-Participants use Dev Spaces. Participant preparation is not implemented yet, so
-`./setup/prepare-participant.sh` currently fails with "Not implemented".
-`./setup/prereq.sh participant` checks a participant namespace
+Participants use Dev Spaces. `./setup/prereq.sh participant` checks a participant namespace
 (set `EDB_PULL_SECRET_NAME` if the EDB pull secret has a custom name).
+
+### Provisioning participants (administrator)
+
+```sh
+./setup/prepare-participant.sh --count 15                                  # developer01..developer15
+./setup/prepare-participant.sh --count 15 --prefix developer --project-prefix workshop   # same, explicit
+```
+
+For each participant the script creates the OpenShift user, a dedicated project and a namespace-scoped `admin` role binding
+(never cluster-admin; no SCC, operator, Dev Spaces, PostgreSQL or MinIO changes). It prints the table of users and projects
+and checks that each project has a RoleBinding to the `admin` ClusterRole for its user; creating an EDB `Cluster` is tested after the first login.
+
+| Count | User and password | Project |
+|---|---|---|
+| `--count 3` | `developer01`, `developer02`, `developer03` | `workshop-developer01`, `workshop-developer02`, `workshop-developer03` |
+
+- **Prerequisites:** `oc` logged in as cluster-admin, `htpasswd`, and the EDB operator installed (`install-operator.sh`).
+- **Authentication:** the cluster must already have an HTPasswd identity provider that uses the secret
+  `openshift-config/htpass-secret` (key `htpasswd`). The script checks this and never edits the OAuth configuration. To create it once, put
+  an initial file in that secret and add an entry like this with `oc edit oauth cluster` (keep your existing providers):
+  `{name: developer, mappingMethod: claim, type: HTPasswd, htpasswd: {fileData: {name: htpass-secret}}}`.
+  The script then downloads the file, adds only the missing users with bcrypt and replaces the `htpasswd` key. Existing users and
+  their password hashes are preserved, so re-running never resets a password. OpenShift recreates the OAuth pod after the secret changes, so
+  new credentials can take 1-2 minutes to work: a login that fails right after provisioning is expected, not an error (retry once the
+  authentication operator is healthy again). The script does not wait for it.
+- **Login = password:** each password equals the user name (`developer01` / `developer01`), and the script prints it. A user appears in
+  OpenShift (`oc get users`) only after the first login; that is not an error.
+- **Idempotent:** existing projects and role bindings are reused, missing ones are added, and `--count 20` after `--count 15` only adds
+  `developer16` to `developer20`. If the secret update fails, no project is touched.
+- **Warning:** predictable credentials are for an isolated, temporary training cluster only. Enterprise OpenShift environments usually
+  use an external identity provider managed by Red Hat or the organization (LDAP, OIDC, ...): do not use this script there; create
+  projects and role bindings with your own tooling instead.
 
 ## Command-line tools
 
