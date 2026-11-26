@@ -1,0 +1,48 @@
+# CNPG workshop: interactive Bash defaults. Installed as /etc/profile.d/cnpg-workshop.sh
+# (loaded by /etc/profile for login shells and, through ~/.bashrc and /etc/bashrc, for terminals).
+# Per-user settings in ~/.bashrc or ~/.bashrc.d/ run later and win.
+[ -n "${BASH_VERSION-}" ] || return 0
+case $- in *i*) ;; *) return 0 ;; esac
+[ -z "${_WS_LOADED-}" ] || return 0
+_WS_LOADED=1
+
+# --- aliases
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+alias ll='ls -alF'
+alias la='ls -A'
+
+# --- history: kept in ~/.bash_history when $HOME is writable; Ctrl+R searches it
+HISTCONTROL=ignoredups
+HISTSIZE=5000
+HISTFILESIZE=10000
+shopt -s histappend
+_WS_HIST=0; [ -w "${HOME-}" ] && _WS_HIST=1
+
+# --- prompt:  <openshift user> <dir> (<git branch>) $
+# The OpenShift user is read once, when the shell starts (never at each prompt); the Linux user
+# name is the fallback when `oc` is missing or not logged in. Only a plain user name is accepted.
+_WS_USER=$(oc whoami --request-timeout=3s 2>/dev/null | head -n1)
+case $_WS_USER in ''|*[!A-Za-z0-9._:@-]*) _WS_USER=$(id -un 2>/dev/null || echo "${USER:-$(id -u)}") ;; esac
+
+# Git branch from local data only (no network). Pure-Bash check for a work tree avoids a fork elsewhere.
+_ws_git_branch() {
+  local d=$PWD b
+  while [ -n "$d" ] && [ ! -e "$d/.git" ]; do d=${d%/*}; done
+  [ -n "$d" ] || { _WS_GIT=; return; }
+  b=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || b=$(git rev-parse --short HEAD 2>/dev/null)
+  _WS_GIT=${b:+ ($b)}
+}
+
+_ws_prompt() {
+  local rc=$?
+  [ "$_WS_HIST" = 1 ] && history -a
+  _WS_ERR=; [ "$rc" -ne 0 ] && _WS_ERR="✗ $rc "
+  _ws_git_branch
+}
+
+# Dynamic parts live in variables that PS1 expands when displayed: their content (a branch name can
+# contain $, backticks or parentheses) is never interpreted as a prompt escape or a command.
+PROMPT_DIRTRIM=3
+PS1='\[\e[1;31m\]${_WS_ERR-}\[\e[0m\]\[\e[1;32m\]${_WS_USER}\[\e[0m\] \[\e[1;34m\]\w\[\e[0m\]\[\e[33m\]${_WS_GIT-}\[\e[0m\] \$ '
+PROMPT_COMMAND="_ws_prompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}"

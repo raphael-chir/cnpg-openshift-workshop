@@ -32,6 +32,7 @@ RUN set -eux; \
     : "${TARGETARCH:?build with docker buildx (TARGETARCH is not set)}"; \
     microdnf install -y --setopt=install_weak_deps=0 --setopt=tsflags=nodocs \
         git-core jq gettext tar gzip less findutils procps-ng which ca-certificates \
+        ncurses bash-completion \
         readline lz4-libs libzstd openldap krb5-libs openssl-libs zlib; \
     printf '[pgdg]\nname=PGDG %s\nbaseurl=https://download.postgresql.org/pub/repos/yum/%s/redhat/rhel-9-$basearch\nenabled=1\ngpgcheck=0\n' \
         "${PG_MAJOR}" "${PG_MAJOR}" > /etc/yum.repos.d/pgdg.repo; \
@@ -76,6 +77,10 @@ RUN set -eux; \
     sha256sum -c "${helm_file}.sha256sum"; \
     tar -xzf "${helm_file}" --strip-components=1 -C /usr/local/bin "linux-${TARGETARCH}/helm"; \
     chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/kubectl-cnp /usr/local/bin/helm; \
+    # Tab completion, generated once at build time and loaded lazily by bash-completion.
+    for tool in oc kubectl helm; do \
+        "${tool}" completion bash > "/usr/share/bash-completion/completions/${tool}"; \
+    done; \
     cd /; rm -rf "${tmp}"
 
 # 3. OpenShift arbitrary-UID support, following the Red Hat documented pattern ("Support arbitrary user ids"):
@@ -87,11 +92,16 @@ RUN set -eux; \
 #    - setuid/setgid bits are removed as defense in depth (nothing in a workspace needs them).
 RUN set -eux; \
     mkdir -p /projects /home/user; \
+    cp /etc/skel/.bashrc /home/user/.bashrc; \
     echo "user:x:10001:0:user:/home/user:/bin/bash" >> /etc/passwd; \
     chgrp -R 0 /projects /home/user; \
     chmod -R g=u /projects /home/user; \
     chmod g=u /etc/passwd; \
     find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod a-s {} +
+
+# Terminal defaults (colored prompt, aliases, history). /etc/profile.d is read by login shells and,
+# through ~/.bashrc -> /etc/bashrc, by the Dev Spaces editor terminals.
+COPY --chmod=0644 setup/devspaces-image/bashrc /etc/profile.d/cnpg-workshop.sh
 
 COPY --chmod=0755 <<'EOF2' /usr/local/bin/entrypoint.sh
 #!/bin/sh
@@ -99,6 +109,10 @@ COPY --chmod=0755 <<'EOF2' /usr/local/bin/entrypoint.sh
 # Skipped when the UID already resolves or /etc/passwd is not writable (the container still works).
 if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
   echo "user:x:$(id -u):0:user:${HOME}:/bin/bash" >> /etc/passwd
+fi
+# A home directory mounted over /home/user has no ~/.bashrc: give it the default one, never overwrite.
+if [ -w "${HOME}" ] && [ ! -e "${HOME}/.bashrc" ]; then
+  cp /etc/skel/.bashrc "${HOME}/.bashrc" 2>/dev/null || true
 fi
 exec "$@"
 EOF2
@@ -114,7 +128,8 @@ RUN set -eux; \
     git --version; jq --version; envsubst --version | head -n1; \
     bash --version | head -n1; curl --version | head -n1; \
     tar --version | head -n1; gzip --version | head -n1; less --version | head -n1; \
-    command -v ldd >/dev/null; find --version | head -n1; rpm --version
+    command -v ldd >/dev/null; find --version | head -n1; rpm --version; \
+    clear -V; ls /usr/share/bash-completion/completions/oc /etc/profile.d/cnpg-workshop.sh
 
 # SHELL lets the Dev Spaces editor terminal start bash even if the UID has no passwd entry.
 ENV HOME=/home/user \
