@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Generate the participant's PostgreSQL manifest from scenarios/templates/cluster.yaml.tpl.
 # Usage: ./setup/init-workshop.sh [--force]
-# The active project must be workshop-developerNN; the cluster is named pg-developerNN.
+# The user must be developerNN: the target project is workshop-developerNN, the cluster pg-developerNN.
+# The active OpenShift project is never used nor changed.
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,14 +27,21 @@ have oc || die "oc not found in PATH"
 have envsubst || die "envsubst not found (package gettext)"
 [[ -f "${TEMPLATE}" ]] || die "template not found: ${TEMPLATE}"
 
-NAMESPACE="$(oc project -q 2>/dev/null)" || die "cannot read the active project (run 'oc login' first)"
-[[ "${NAMESPACE}" =~ ^workshop-developer[0-9]{2}$ ]] \
-  || die "active project '${NAMESPACE}' does not match workshop-developerNN (use 'oc project workshop-developerNN')"
-CLUSTER_NAME="pg-${NAMESPACE#workshop-}"
+USER_NAME="$(oc whoami 2>/dev/null)" || die "cannot read the current user (run 'oc login' first)"
+[[ "${USER_NAME}" =~ ^developer[0-9]{2}$ ]] || die "user '${USER_NAME}' does not match developerNN"
+NAMESPACE="workshop-${USER_NAME}"
+CLUSTER_NAME="pg-${USER_NAME}"
 export NAMESPACE CLUSTER_NAME
 
+# "oc get project" works for a project admin; "get namespace" is cluster-scoped and is not required.
+oc get project "${NAMESPACE}" >/dev/null 2>&1 || die "project ${NAMESPACE} not found or not accessible for ${USER_NAME}"
+[[ "$(oc auth can-i create clusters.postgresql.k8s.enterprisedb.io -n "${NAMESPACE}" 2>/dev/null || true)" == "yes" ]] \
+  || die "${USER_NAME} cannot create EDB PostgreSQL Cluster resources in ${NAMESPACE}"
+
 if [[ -e "${OUTPUT}" && "${FORCE}" -ne 1 ]]; then
-  log_info "Manifest already exists: ${OUTPUT} (use --force to regenerate)"
+  grep -qx "  namespace: ${NAMESPACE}" "${OUTPUT}" \
+    || die "existing manifest ${OUTPUT} does not target ${NAMESPACE}: run with --force to regenerate"
+  log_info "Manifest already exists for ${NAMESPACE}: ${OUTPUT} (use --force to regenerate)"
   exit 0
 fi
 

@@ -5,6 +5,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/../lib/ui.sh"
+# Participant project, derived from the user (the active project, e.g. developer10-devspaces, is not used).
+NAMESPACE="workshop-$(oc whoami)"
 ${REPO_ROOT}/setup/init-workshop.sh
 
 show_instruct() {
@@ -39,7 +41,7 @@ play() {
   ui_pause
 
   ui_info "Deploy PostgreSQL"
-  ui_command "oc apply -f manifests/cluster.yaml"
+  ui_command "oc apply -n \"\${NAMESPACE}\" -f \"\${REPO_ROOT}/scenarios/manifests/cluster.yaml\""
   ui_pause
 
   ui_success "PostgreSQL 17 deployed ."
