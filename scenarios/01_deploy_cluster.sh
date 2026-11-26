@@ -36,12 +36,16 @@ and WAL archiving configured.
 
 play() {
 
+  ui_info "Set Openshift project workspace"
+  ui_command "oc project ${NAMESPACE}"
+  ui_pause
+
   ui_info "Create MinIO credentials"
-  ui_command "kubectl create secret generic minio-secret --from-literal=MINIO_ACCESS_KEY=admin --from-literal=MINIO_SECRET_KEY=password --dry-run=client -o yaml | kubectl apply -f -"
+  ui_command "oc create secret generic minio-creds --from-literal=ACCESS_KEY_ID=admin --from-literal=ACCESS_SECRET_KEY=password --dry-run=client -o yaml | oc apply -f -"
   ui_pause
 
   ui_info "Deploy PostgreSQL"
-  ui_command "oc apply -n \"\${NAMESPACE}\" -f \"\${REPO_ROOT}/scenarios/manifests/cluster.yaml\""
+  ui_command "oc apply -f manifests/cluster.yaml"
   ui_pause
 
   ui_success "PostgreSQL 17 deployed ."
