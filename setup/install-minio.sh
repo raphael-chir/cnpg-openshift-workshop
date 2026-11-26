@@ -104,6 +104,43 @@ verify_bucket() {
   die "Bucket ${BUCKET} not found in MinIO"
 }
 
+# OpenShift only: expose the console (service <release>-console, port 9001) through an edge Route.
+# An existing Route is never modified; a Route pointing elsewhere only gets a warning.
+ensure_console_route() {
+  local svc="${RELEASE}-console" route="${RELEASE}-console" port=9001 apis target tls host scheme status="OK"
+  apis="$(oc api-versions 2>/dev/null || true)"
+  if ! grep -qx 'route.openshift.io/v1' <<<"${apis}"; then
+    log_info "OpenShift Route API not available: console Route skipped"
+    return 0
+  fi
+  oc -n "${NAMESPACE}" get service "${svc}" >/dev/null 2>&1 || die "service ${svc} not found in ${NAMESPACE}"
+  if oc -n "${NAMESPACE}" get route "${route}" >/dev/null 2>&1; then
+    log_info "Route ${route} exists: kept unchanged"
+  else
+    oc -n "${NAMESPACE}" create route edge "${route}" --service="${svc}" --port="${port}" >/dev/null \
+      || die "could not create Route ${route} in ${NAMESPACE}"
+    log_success "Route ${route} created"
+  fi
+  target="$(oc -n "${NAMESPACE}" get route "${route}" -o 'jsonpath={.spec.to.name}:{.spec.port.targetPort}' 2>/dev/null || true)"
+  case "${target}" in
+    "${svc}:${port}"|"${svc}:http") ;;
+    *) status="CHECK (Route targets '${target}', expected ${svc}:${port})"
+       log_warn "Route ${route} points to '${target}', not ${svc}:${port}; it was left unchanged" ;;
+  esac
+  tls="$(oc -n "${NAMESPACE}" get route "${route}" -o 'jsonpath={.spec.tls.termination}' 2>/dev/null || true)"
+  host="$(oc -n "${NAMESPACE}" get route "${route}" -o 'jsonpath={.spec.host}' 2>/dev/null || true)"
+  [[ -n "${host}" ]] || die "Route ${route} has no host yet (oc -n ${NAMESPACE} get route ${route})"
+  scheme="http"; [[ -n "${tls}" ]] && scheme="https"
+  echo "MinIO Console"
+  echo "-------------"
+  echo "Namespace: ${NAMESPACE}"
+  echo "Service:   ${svc}:${port}"
+  echo "Route:     ${route}"
+  echo "TLS:       ${tls:-none}"
+  echo "URL:       ${scheme}://${host}"
+  echo "Status:    ${status}"
+}
+
 main() {
   [[ $# -eq 0 ]] || { usage >&2; exit 2; }
 
@@ -126,6 +163,7 @@ main() {
   log_success "Deployment ${RELEASE} ready"
   verify_bucket
   log_info "MinIO internal endpoint: ${ENDPOINT}"
+  ensure_console_route
 }
 
 main "$@"

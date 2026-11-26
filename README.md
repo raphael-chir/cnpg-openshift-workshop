@@ -59,6 +59,13 @@ All scripts are safe to run again. Each prints its target and results through `l
 - **MinIO:** credentials default to `admin` / `password`. Override with `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`;
   without overrides, the credentials already stored in the Secret `minio-root-credentials` are kept.
   Internal endpoint: `http://minio.minio-system.svc.cluster.local:9000`.
+  On OpenShift the script also creates an edge-TLS Route `minio-console` for the console (an existing Route is kept; a Route pointing
+  elsewhere only triggers a warning) and prints its URL, which you can read again with
+  `oc get route minio-console -n minio-system -o jsonpath='https://{.spec.host}{"\n"}'`.
+  Two ports: the **S3 API** is `minio:9000` (in-cluster only, used by PostgreSQL backups) and the **console** is `minio-console:9001`
+  (the Route). The console login is the **MinIO** root user and password (`admin` / `password` by default, or the values in the
+  Secret `minio-root-credentials`), not an OpenShift account. It is an administrative interface: outside an isolated lab, restrict
+  access to it (network policy, VPN, or no Route).
 - **Dev Spaces:** existing OperatorGroups, Subscriptions and CheClusters are never overwritten or deleted.
   An incompatible existing installation stops the script with an explanation.
 
