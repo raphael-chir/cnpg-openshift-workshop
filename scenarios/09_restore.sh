@@ -49,10 +49,6 @@ play() {
   ui_command "oc get secret minio-creds -n ${NAMESPACE}"
   ui_pause
 
-  ui_info "Review recovery manifest"
-  ui_command "cat ${RESTORE_MANIFEST}"
-  ui_pause
-
   ui_confirm "Create recovery cluster ${RESTORE_CLUSTER}?" || return 0
 
   ui_info "Create PostgreSQL recovery cluster"
