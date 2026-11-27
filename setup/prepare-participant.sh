@@ -21,6 +21,7 @@ source "${SCRIPT_DIR}/workshop.env"
 AUTH_NS="openshift-config"
 AUTH_SECRET="htpass-secret"
 AUTH_KEY="htpasswd"
+CLUSTER_OPS_ROLE="workshop-cluster-ops"
 
 USERS=()
 PROJECTS=()
@@ -137,6 +138,37 @@ update_htpasswd() {
     || die "the secret was updated but does not contain every participant; no project was provisioned (inspect with 'oc -n ${AUTH_NS} get secret ${AUTH_SECRET}' and re-run)"
 }
 
+# Namespaced Role + RoleBinding for $1 (user) in $2 (project): the "admin" role does not cover the
+# scale and status subresources of EDB clusters (needed by "oc scale" and "oc cnp promote").
+# "oc apply" makes it idempotent.
+apply_cluster_rbac() {
+  oc apply -n "$2" -f - >/dev/null <<YAML || die "could not apply the cluster-ops Role/RoleBinding for $1 in $2"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${CLUSTER_OPS_ROLE}
+  namespace: $2
+rules:
+  - apiGroups: ["postgresql.k8s.enterprisedb.io"]
+    resources: ["clusters/scale", "clusters/status"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${CLUSTER_OPS_ROLE}
+  namespace: $2
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${CLUSTER_OPS_ROLE}
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: $1
+YAML
+}
+
 # One project per participant, with the namespace-scoped admin role (never cluster-admin).
 create_projects() {
   local i user project
@@ -150,6 +182,7 @@ create_projects() {
     fi
     oc adm policy add-role-to-user admin "${user}" -n "${project}" >/dev/null \
       || die "could not grant the admin role to ${user} in ${project}"
+    apply_cluster_rbac "${user}" "${project}"
   done
 }
 

@@ -45,7 +45,7 @@ play() {
 
   local pvc_list
   pvc_list=$(oc get pvc "${primary}" "${primary}-wal" \
-    --ignore-not-found -o name)
+    --ignore-not-found -o name | tr '\n' ' ')
 
   ui_info "Delete primary Pod and available PVCs"
   ui_command "oc delete pod/${primary} ${pvc_list} --force --grace-period=0"
