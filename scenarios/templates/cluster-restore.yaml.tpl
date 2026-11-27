@@ -41,6 +41,7 @@ spec:
       barmanObjectStore:
         destinationPath: "s3://cnpg/"
         endpointURL: "http://minio.minio-system.svc.cluster.local:9000"
+        serverName: ${CLUSTER_NAME}
         s3Credentials:
           accessKeyId:
             name: minio-creds
@@ -49,17 +50,18 @@ spec:
             name: minio-creds
             key: ACCESS_SECRET_KEY
 
-    backup:
-      barmanObjectStore:
-        destinationPath: "s3://cnpg/"
-        endpointURL: "http://minio.minio-system.svc.cluster.local:9000"
-        s3Credentials:
-          accessKeyId:
-            name: minio-creds
-            key: ACCESS_KEY_ID
-          secretAccessKey:
-            name: minio-creds
-            key: ACCESS_SECRET_KEY
-        data:
-          immediateCheckpoint: true
-      retentionPolicy: "1d"
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://cnpg/"
+      endpointURL: "http://minio.minio-system.svc.cluster.local:9000"
+      serverName: ${CLUSTER_NAME}-restore
+      s3Credentials:
+        accessKeyId:
+          name: minio-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-creds
+          key: ACCESS_SECRET_KEY
+      data:
+        immediateCheckpoint: true
+    retentionPolicy: "1d"
