@@ -33,31 +33,31 @@ A replica becomes the new primary and the cluster recovers.
 
 play() {
   local primary
-  primary=$(kubectl get cluster "${CLUSTER_NAME}" -o jsonpath='{.status.currentPrimary}')
+  primary=$(oc get cluster "${CLUSTER_NAME}" -o jsonpath='{.status.currentPrimary}')
   [[ -n "$primary" ]] || { ui_error "No primary found"; return 1; }
 
   ui_info "Identify the current PostgreSQL primary"
-  ui_command "kubectl get pods -l k8s.enterprisedb.io/cluster=${CLUSTER_NAME} -L k8s.enterprisedb.io/instanceRole -o wide"
+  ui_command "oc get pods -l k8s.enterprisedb.io/cluster=${CLUSTER_NAME} -L k8s.enterprisedb.io/instanceRole -o wide"
   ui_pause
 
   ui_warn "Simulate permanent storage failure of primary ${primary}."
   ui_confirm "Delete primary Pod and its PVCs?" || return 0
 
   local pvc_list
-  pvc_list=$(kubectl get pvc "${primary}" "${primary}-wal" \
+  pvc_list=$(oc get pvc "${primary}" "${primary}-wal" \
     --ignore-not-found -o name)
 
   ui_info "Delete primary Pod and available PVCs"
-  ui_command "kubectl delete pod/${primary} ${pvc_list} --force --grace-period=0"
+  ui_command "oc delete pod/${primary} ${pvc_list} --force --grace-period=0"
   ui_pause
 
   ui_info "Observe automatic failover and primary election"
-  ui_watch "kubectl get pods -l k8s.enterprisedb.io/cluster=${CLUSTER_NAME} -L k8s.enterprisedb.io/instanceRole"
+  ui_watch "oc get pods -l k8s.enterprisedb.io/cluster=${CLUSTER_NAME} -L k8s.enterprisedb.io/instanceRole"
   ui_pause
 
   ui_info "Verify the new PostgreSQL primary"
   local new_primary
-  new_primary=$(kubectl get cluster "${CLUSTER_NAME}" -o jsonpath='{.status.currentPrimary}')
+  new_primary=$(oc get cluster "${CLUSTER_NAME}" -o jsonpath='{.status.currentPrimary}')
 
   if [[ -n "$new_primary" && "$new_primary" != "$primary" ]]; then
     ui_success "Automatic failover completed: ${primary} -> ${new_primary}"
@@ -66,7 +66,7 @@ play() {
   fi
 
   ui_info "Verify PostgreSQL cluster recovery"
-  ui_command "kubectl cnpg status ${CLUSTER_NAME}"
+  ui_command "oc cnp status ${CLUSTER_NAME}"
   ui_pause
 
   ui_success "Automatic failover scenario completed."
