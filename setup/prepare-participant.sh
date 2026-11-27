@@ -98,6 +98,8 @@ done
 
 # --- HTPasswd: keep every existing line (and hash); only add missing users
 download_htpasswd "${TMP}/htpasswd"
+# htpasswd appends to the last line when the file has no trailing newline (it would corrupt that entry): add one.
+[[ ! -s "${TMP}/htpasswd" || -z "$(tail -c1 "${TMP}/htpasswd")" ]] || printf '\n' >> "${TMP}/htpasswd"
 cp "${TMP}/htpasswd" "${TMP}/htpasswd.orig"
 added=0
 for user in "${USERS[@]}"; do
@@ -107,6 +109,13 @@ for user in "${USERS[@]}"; do
   htpasswd -bB "${TMP}/htpasswd" "${user}" "${user}" >/dev/null 2>&1 || die "htpasswd failed for user ${user}"
   added=$((added + 1))
 done
+# Never push an inconsistent file: every participant has its own line and every original line is untouched.
+for user in "${USERS[@]}"; do
+  grep -q "^${user}:" "${TMP}/htpasswd" || die "htpasswd did not add ${user} to the local file; the secret was NOT updated"
+done
+if grep -vxFf "${TMP}/htpasswd" "${TMP}/htpasswd.orig" >/dev/null; then
+  die "an existing htpasswd entry would be altered; the secret was NOT updated"
+fi
 if cmp -s "${TMP}/htpasswd" "${TMP}/htpasswd.orig"; then
   log_info "All ${COUNT} users already exist in the secret: nothing to update"
 else
@@ -125,7 +134,7 @@ HTPASSWD_OK=OK
 for user in "${USERS[@]}"; do
   grep -q "^${user}:" "${TMP}/htpasswd.check" || { log_error "user ${user} missing from the secret"; HTPASSWD_OK=FAILED; }
 done
-[[ "${HTPASSWD_OK}" == OK ]] || die "the secret does not contain every participant; no project was provisioned"
+[[ "${HTPASSWD_OK}" == OK ]] || die "the secret was updated but does not contain every participant; no project was provisioned (inspect with 'oc -n ${AUTH_NS} get secret ${AUTH_SECRET}' and re-run)"
 
 # --- projects and namespace-scoped admin role (never cluster-admin)
 for (( i = 0; i < COUNT; i++ )); do

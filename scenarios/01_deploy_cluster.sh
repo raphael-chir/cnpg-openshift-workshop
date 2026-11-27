@@ -68,11 +68,11 @@ play() {
   ui_pause
 
   ui_info "Explore the PostgreSQL cluster manifest"
-  ui_command "cat manifests/cluster.yaml"
+  ui_command "cat ${REPO_ROOT}/scenarios/manifests/cluster.yaml"
   ui_pause
 
   ui_info "Deploy the PostgreSQL cluster"
-  ui_command "oc apply -f manifests/cluster.yaml"
+  ui_command "oc apply -f ${REPO_ROOT}/scenarios/manifests/cluster.yaml"
   ui_pause
 
   ui_info "Monitor PostgreSQL cluster initialization"
@@ -80,7 +80,7 @@ play() {
   ui_pause
 
   ui_info "Verify PostgreSQL instances and their roles"
-  ui_command "oc get pods -l cnpg.io/cluster=${CLUSTER_NAME} -L cnpg.io/instanceRole"
+  ui_command "oc get pods -l k8s.enterprisedb.io/cluster=${CLUSTER_NAME} -L k8s.enterprisedb.io/instanceRole"
   ui_pause
 
   ui_info "Verify PostgreSQL cluster status"
