@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# setup/install-minio.sh
 # Install or reconcile MinIO (Helm chart 5.4.0) with the "cnpg" bucket.
-# Usage: ./setup/install-minio.sh
+# Prerequisites: oc logged in as cluster-admin, helm, a default StorageClass.
 # Optional env: MINIO_ROOT_USER, MINIO_ROOT_PASSWORD (used only when set).
+# Usage: ./setup/install-minio.sh
+# -----------------------------------------------------------------------------
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,11 +17,11 @@ source "${REPO_ROOT}/lib/common.sh"
 
 CHART_VERSION="5.4.0"
 RELEASE="minio"
-NAMESPACE="minio-system"
+MINIO_NS="minio-system"
 SECRET="minio-root-credentials"
 BUCKET="cnpg"
 VALUES="${SCRIPT_DIR}/values-minio.yaml"
-ENDPOINT="http://${RELEASE}.${NAMESPACE}.svc.cluster.local:9000"
+ENDPOINT="http://${RELEASE}.${MINIO_NS}.svc.cluster.local:9000"
 DEFAULT_USER="admin"
 DEFAULT_PASSWORD="password"
 
@@ -37,7 +41,7 @@ unb64() { base64 --decode; }
 
 # Value of a key in the existing credentials Secret (empty if absent). Never printed.
 secret_field() {
-  oc -n "${NAMESPACE}" get secret "${SECRET}" -o "jsonpath={.data.$1}" 2>/dev/null | unb64 2>/dev/null || true
+  oc -n "${MINIO_NS}" get secret "${SECRET}" -o "jsonpath={.data.$1}" 2>/dev/null | unb64 2>/dev/null || true
 }
 
 preflight() {
@@ -53,11 +57,11 @@ preflight() {
 }
 
 ensure_namespace() {
-  if oc get namespace "${NAMESPACE}" >/dev/null 2>&1; then
-    log_info "Namespace ${NAMESPACE} exists"
+  if oc get namespace "${MINIO_NS}" >/dev/null 2>&1; then
+    log_info "Namespace ${MINIO_NS} exists"
   else
-    oc create namespace "${NAMESPACE}" >/dev/null || die "could not create namespace ${NAMESPACE}"
-    log_success "Namespace ${NAMESPACE} created"
+    oc create namespace "${MINIO_NS}" >/dev/null || die "could not create namespace ${MINIO_NS}"
+    log_success "Namespace ${MINIO_NS} created"
   fi
 }
 
@@ -77,7 +81,7 @@ ensure_credentials() {
   fi
   {
     printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s"},"type":"Opaque","data":{"rootUser":"%s","rootPassword":"%s"}}' \
-      "${SECRET}" "${NAMESPACE}" "$(printf '%s' "${user}" | b64)" "$(printf '%s' "${pass}" | b64)"
+      "${SECRET}" "${MINIO_NS}" "$(printf '%s' "${user}" | b64)" "$(printf '%s' "${pass}" | b64)"
   } | oc apply -f - >/dev/null || die "could not create or update secret ${SECRET}"
   log_success "Secret ${SECRET} up to date"
 }
@@ -87,16 +91,16 @@ install_chart() {
   helm repo add minio https://charts.min.io/ --force-update >/dev/null \
     || die "could not add the MinIO Helm repository (network access to charts.min.io?)"
   helm upgrade --install "${RELEASE}" minio/minio \
-    --namespace "${NAMESPACE}" --version "${CHART_VERSION}" \
+    --namespace "${MINIO_NS}" --version "${CHART_VERSION}" \
     --values "${VALUES}" --hide-notes --wait --timeout 10m >/dev/null \
-    || die "helm upgrade --install failed (see: helm -n ${NAMESPACE} status ${RELEASE}; oc -n ${NAMESPACE} get pods)"
+    || die "helm upgrade --install failed (see: helm -n ${MINIO_NS} status ${RELEASE}; oc -n ${MINIO_NS} get pods)"
   log_success "Helm release ${RELEASE} deployed"
 }
 
 verify_bucket() {
   local i
   for (( i = 1; i <= 20; i++ )); do
-    if oc -n "${NAMESPACE}" exec "deploy/${RELEASE}" -- test -d "/export/${BUCKET}" 2>/dev/null; then
+    if oc -n "${MINIO_NS}" exec "deploy/${RELEASE}" -- test -d "/export/${BUCKET}" 2>/dev/null; then
       log_success "Bucket ${BUCKET} exists"; return 0
     fi
     sleep 3
@@ -113,27 +117,27 @@ ensure_console_route() {
     log_info "OpenShift Route API not available: console Route skipped"
     return 0
   fi
-  oc -n "${NAMESPACE}" get service "${svc}" >/dev/null 2>&1 || die "service ${svc} not found in ${NAMESPACE}"
-  if oc -n "${NAMESPACE}" get route "${route}" >/dev/null 2>&1; then
+  oc -n "${MINIO_NS}" get service "${svc}" >/dev/null 2>&1 || die "service ${svc} not found in ${MINIO_NS}"
+  if oc -n "${MINIO_NS}" get route "${route}" >/dev/null 2>&1; then
     log_info "Route ${route} exists: kept unchanged"
   else
-    oc -n "${NAMESPACE}" create route edge "${route}" --service="${svc}" --port="${port}" >/dev/null \
-      || die "could not create Route ${route} in ${NAMESPACE}"
+    oc -n "${MINIO_NS}" create route edge "${route}" --service="${svc}" --port="${port}" >/dev/null \
+      || die "could not create Route ${route} in ${MINIO_NS}"
     log_success "Route ${route} created"
   fi
-  target="$(oc -n "${NAMESPACE}" get route "${route}" -o 'jsonpath={.spec.to.name}:{.spec.port.targetPort}' 2>/dev/null || true)"
+  target="$(oc -n "${MINIO_NS}" get route "${route}" -o 'jsonpath={.spec.to.name}:{.spec.port.targetPort}' 2>/dev/null || true)"
   case "${target}" in
     "${svc}:${port}"|"${svc}:http") ;;
     *) status="CHECK (Route targets '${target}', expected ${svc}:${port})"
        log_warn "Route ${route} points to '${target}', not ${svc}:${port}; it was left unchanged" ;;
   esac
-  tls="$(oc -n "${NAMESPACE}" get route "${route}" -o 'jsonpath={.spec.tls.termination}' 2>/dev/null || true)"
-  host="$(oc -n "${NAMESPACE}" get route "${route}" -o 'jsonpath={.spec.host}' 2>/dev/null || true)"
-  [[ -n "${host}" ]] || die "Route ${route} has no host yet (oc -n ${NAMESPACE} get route ${route})"
+  tls="$(oc -n "${MINIO_NS}" get route "${route}" -o 'jsonpath={.spec.tls.termination}' 2>/dev/null || true)"
+  host="$(oc -n "${MINIO_NS}" get route "${route}" -o 'jsonpath={.spec.host}' 2>/dev/null || true)"
+  [[ -n "${host}" ]] || die "Route ${route} has no host yet (oc -n ${MINIO_NS} get route ${route})"
   scheme="http"; [[ -n "${tls}" ]] && scheme="https"
   echo "MinIO Console"
   echo "-------------"
-  echo "Namespace: ${NAMESPACE}"
+  echo "Namespace: ${MINIO_NS}"
   echo "Service:   ${svc}:${port}"
   echo "Route:     ${route}"
   echo "TLS:       ${tls:-none}"
@@ -150,16 +154,16 @@ main() {
 
   # Root credentials are read at startup: restart a running MinIO before the chart's
   # bucket job connects with the new ones.
-  if [[ "${CREDS_CHANGED}" -eq 1 ]] && oc -n "${NAMESPACE}" get deployment "${RELEASE}" >/dev/null 2>&1; then
+  if [[ "${CREDS_CHANGED}" -eq 1 ]] && oc -n "${MINIO_NS}" get deployment "${RELEASE}" >/dev/null 2>&1; then
     log_info "Credentials changed: restarting MinIO"
-    oc -n "${NAMESPACE}" rollout restart "deployment/${RELEASE}" >/dev/null || die "could not restart ${RELEASE}"
-    oc -n "${NAMESPACE}" rollout status "deployment/${RELEASE}" --timeout=300s >/dev/null \
-      || die "deployment ${RELEASE} not ready after restart (oc -n ${NAMESPACE} get pods)"
+    oc -n "${MINIO_NS}" rollout restart "deployment/${RELEASE}" >/dev/null || die "could not restart ${RELEASE}"
+    oc -n "${MINIO_NS}" rollout status "deployment/${RELEASE}" --timeout=300s >/dev/null \
+      || die "deployment ${RELEASE} not ready after restart (oc -n ${MINIO_NS} get pods)"
   fi
 
   install_chart
-  oc -n "${NAMESPACE}" rollout status "deployment/${RELEASE}" --timeout=300s >/dev/null \
-    || die "deployment ${RELEASE} not ready in 5 min (oc -n ${NAMESPACE} get pods)"
+  oc -n "${MINIO_NS}" rollout status "deployment/${RELEASE}" --timeout=300s >/dev/null \
+    || die "deployment ${RELEASE} not ready in 5 min (oc -n ${MINIO_NS} get pods)"
   log_success "Deployment ${RELEASE} ready"
   verify_bucket
   log_info "MinIO internal endpoint: ${ENDPOINT}"

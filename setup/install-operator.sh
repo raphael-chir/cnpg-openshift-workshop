@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# setup/install-operator.sh
 # Install or reconcile the EDB CloudNativePG Operator through OLM.
+# Prerequisites: oc logged in as cluster-admin; EDB_SUBSCRIPTION_TOKEN (exported, or in .env at the repository
+#   root) unless the pull secret already exists.
 # Usage: ./setup/install-operator.sh
-# Token: EDB_SUBSCRIPTION_TOKEN (exported, or in .env at the repository root).
+# -----------------------------------------------------------------------------
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,11 +15,10 @@ source "${REPO_ROOT}/lib/logger.sh"
 # shellcheck source=../lib/common.sh
 source "${REPO_ROOT}/lib/common.sh"
 
-NAMESPACE="openshift-operators"
+OPERATOR_NS="openshift-operators"
 PACKAGE="cloud-native-postgresql"
 CHANNEL="fast"
 CATALOG="certified-operators"
-CATALOG_NS="openshift-marketplace"
 SUBSCRIPTION_FILE="${SCRIPT_DIR}/operator-subscription.yaml"
 PULL_SECRET="postgresql-operator-pull-secret"
 REGISTRY="docker.enterprisedb.com"
@@ -54,7 +57,7 @@ load_token() {
   return 0
 }
 
-secret_exists() { oc -n "${NAMESPACE}" get secret "${PULL_SECRET}" >/dev/null 2>&1; }
+secret_exists() { oc -n "${OPERATOR_NS}" get secret "${PULL_SECRET}" >/dev/null 2>&1; }
 
 # Create or update the pull secret. The token only travels through pipes (no argv, no file).
 ensure_pull_secret() {
@@ -69,7 +72,7 @@ ensure_pull_secret() {
   auth="$(printf '%s:%s' "${REGISTRY_USER}" "${EDB_SUBSCRIPTION_TOKEN}" | base64 | tr -d '\n')"
   printf '{"auths":{"%s":{"username":"%s","password":"%s","auth":"%s"}}}' \
       "${REGISTRY}" "${REGISTRY_USER}" "${EDB_SUBSCRIPTION_TOKEN}" "${auth}" \
-    | oc -n "${NAMESPACE}" create secret generic "${PULL_SECRET}" \
+    | oc -n "${OPERATOR_NS}" create secret generic "${PULL_SECRET}" \
         --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=/dev/stdin \
         --dry-run=client -o yaml \
     | oc apply --server-side --force-conflicts -f - >/dev/null \
@@ -81,10 +84,10 @@ check_conflicts() {
   local other
   other="$(oc get subscriptions.operators.coreos.com -A \
     -o 'jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {.spec.name}{"\n"}{end}' 2>/dev/null \
-    | awk -v pkg="${PACKAGE}" -v ours="${NAMESPACE}/${PACKAGE}" '$2==pkg && $1!=ours {print $1}' || true)"
+    | awk -v pkg="${PACKAGE}" -v ours="${OPERATOR_NS}/${PACKAGE}" '$2==pkg && $1!=ours {print $1}' || true)"
   [[ -z "${other}" ]] || die "conflict: ${PACKAGE} is already subscribed elsewhere (${other//$'\n'/, }); remove it first"
   if oc get crd "${CRD}" >/dev/null 2>&1 \
-     && ! oc -n "${NAMESPACE}" get subscription.operators.coreos.com "${PACKAGE}" >/dev/null 2>&1; then
+     && ! oc -n "${OPERATOR_NS}" get subscription.operators.coreos.com "${PACKAGE}" >/dev/null 2>&1; then
     # CRD without Subscription: tolerate a residual OLM-managed CRD, never touch it.
     local managed csvs deps
     managed="$(oc get crd "${CRD}" -o 'jsonpath={.metadata.labels.olm\.managed}' 2>/dev/null || true)"
@@ -102,7 +105,7 @@ check_conflicts() {
 
 apply_subscription() {
   local cur
-  cur="$(oc -n "${NAMESPACE}" get subscription.operators.coreos.com "${PACKAGE}" \
+  cur="$(oc -n "${OPERATOR_NS}" get subscription.operators.coreos.com "${PACKAGE}" \
     -o 'jsonpath={.spec.name}/{.spec.channel}/{.spec.source}' 2>/dev/null || true)"
   if [[ -n "${cur}" && "${cur}" != "${PACKAGE}/${CHANNEL}/${CATALOG}" ]]; then
     log_info "Existing Subscription differs (${cur}); aligning it with the manifest"
@@ -112,10 +115,10 @@ apply_subscription() {
 }
 
 installed_csv() {
-  oc -n "${NAMESPACE}" get subscription.operators.coreos.com "${PACKAGE}" -o 'jsonpath={.status.installedCSV}' 2>/dev/null
+  oc -n "${OPERATOR_NS}" get subscription.operators.coreos.com "${PACKAGE}" -o 'jsonpath={.status.installedCSV}' 2>/dev/null
 }
 csv_phase() {
-  oc -n "${NAMESPACE}" get csv "$1" -o 'jsonpath={.status.phase}' 2>/dev/null
+  oc -n "${OPERATOR_NS}" get csv "$1" -o 'jsonpath={.status.phase}' 2>/dev/null
 }
 have_installed_csv() { [[ -n "$(installed_csv)" ]]; }
 csv_succeeded() { [[ "$(csv_phase "$1")" == "Succeeded" ]]; }
@@ -123,20 +126,20 @@ csv_succeeded() { [[ "$(csv_phase "$1")" == "Succeeded" ]]; }
 wait_csv() {
   local csv
   wait_until 300 have_installed_csv \
-    || die "OLM did not resolve an installed CSV in 5 min (oc -n ${NAMESPACE} describe subscription ${PACKAGE})"
+    || die "OLM did not resolve an installed CSV in 5 min (oc -n ${OPERATOR_NS} describe subscription ${PACKAGE})"
   csv="$(installed_csv)"
   wait_until 600 csv_succeeded "${csv}" \
-    || die "CSV ${csv} did not reach Succeeded in 10 min (phase: $(csv_phase "${csv}" || true)); check 'oc -n ${NAMESPACE} get pods' for ImagePullBackOff and the pull secret"
+    || die "CSV ${csv} did not reach Succeeded in 10 min (phase: $(csv_phase "${csv}" || true)); check 'oc -n ${OPERATOR_NS} get pods' for ImagePullBackOff and the pull secret"
   CSV="${csv}"
   log_success "Operator CSV Succeeded"
 }
 
 wait_deployment() {
   local dep
-  dep="$(oc -n "${NAMESPACE}" get csv "${CSV}" -o 'jsonpath={.spec.install.spec.deployments[0].name}' 2>/dev/null || true)"
+  dep="$(oc -n "${OPERATOR_NS}" get csv "${CSV}" -o 'jsonpath={.spec.install.spec.deployments[0].name}' 2>/dev/null || true)"
   [[ -n "${dep}" ]] || die "could not find the operator deployment in CSV ${CSV}"
-  oc -n "${NAMESPACE}" rollout status "deployment/${dep}" --timeout=300s >/dev/null 2>&1 \
-    || die "deployment ${dep} not ready in 5 min (check pods for ImagePullBackOff: oc -n ${NAMESPACE} get pods)"
+  oc -n "${OPERATOR_NS}" rollout status "deployment/${dep}" --timeout=300s >/dev/null 2>&1 \
+    || die "deployment ${dep} not ready in 5 min (check pods for ImagePullBackOff: oc -n ${OPERATOR_NS} get pods)"
   log_success "Operator deployment ready"
 }
 
@@ -156,8 +159,8 @@ main() {
   log_success "EDB CNPG CRD registered"
 
   log_success "EDB CloudNativePG Operator installed"
-  log_info "Version: $(oc -n "${NAMESPACE}" get csv "${CSV}" -o 'jsonpath={.spec.version}' 2>/dev/null)"
-  log_info "Namespace: ${NAMESPACE}"
+  log_info "Version: $(oc -n "${OPERATOR_NS}" get csv "${CSV}" -o 'jsonpath={.spec.version}' 2>/dev/null)"
+  log_info "Namespace: ${OPERATOR_NS}"
 }
 
 main "$@"

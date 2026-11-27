@@ -71,8 +71,8 @@ All scripts are safe to run again. Each prints its target and results through `l
 
 ## Participant workflow
 
-Participants use Dev Spaces. `./setup/prereq.sh participant` checks a participant namespace
-(set `EDB_PULL_SECRET_NAME` if the EDB pull secret has a custom name).
+Participants use Dev Spaces. Each participant works in a project of their own; the EDB image pull secret is
+provided by the operator, so participants do not create it.
 
 ### Provisioning participants (administrator)
 
@@ -80,6 +80,10 @@ Participants use Dev Spaces. `./setup/prereq.sh participant` checks a participan
 ./setup/prepare-participant.sh --count 15                                  # developer01..developer15
 ./setup/prepare-participant.sh --count 15 --prefix developer --project-prefix workshop   # same, explicit
 ```
+
+The user, project and cluster name prefixes and the default participant count are defined in `setup/workshop.env`
+(defaults: `developer`, `workshop`, `pg`, 15; each can be overridden from the environment). The `scenarios/` scripts
+use the default `workshop-<user>` and `pg-<user>` names, so change the project or cluster prefix there too.
 
 For each participant the script creates the OpenShift user, a dedicated project and a namespace-scoped `admin` role binding
 (never cluster-admin; no SCC, operator, Dev Spaces, PostgreSQL or MinIO changes). It prints the table of users and projects
@@ -137,5 +141,3 @@ Check the result with `command -v kubectl-cnp` and `oc cnp --help`.
 
 - `oc cnp` runs the EDB plugin (`kubectl-cnp`), which is the one this workshop uses with the EDB operator.
 - `oc cnpg` runs the community plugin (`kubectl-cnpg`). It is not installed by the workshop and is not interchangeable with the EDB one.
-
-`./setup/prereq.sh participant` only checks that `kubectl-cnp` is available; it never installs anything.

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# setup/install-devspaces.sh
 # Install or reconcile Red Hat OpenShift Dev Spaces through OLM (any OpenShift cluster).
-# Usage: ./setup/install-devspaces.sh
+# Prerequisites: oc logged in as cluster-admin.
 # Never overwrites or deletes existing OperatorGroups, Subscriptions or CheClusters.
+# Usage: ./setup/install-devspaces.sh
+# -----------------------------------------------------------------------------
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +15,7 @@ source "${REPO_ROOT}/lib/logger.sh"
 # shellcheck source=../lib/common.sh
 source "${REPO_ROOT}/lib/common.sh"
 
-NAMESPACE="openshift-devspaces"
+DEVSPACES_NS="openshift-devspaces"
 PACKAGE="devspaces"
 CHANNEL="stable"
 CATALOG="redhat-operators"
@@ -38,27 +42,27 @@ detect_existing() {
   # Subscription for the package anywhere other than our namespace.
   rows="$(oc get subscriptions.operators.coreos.com -A \
     -o 'jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name} {.spec.name}{"\n"}{end}' 2>/dev/null || true)"
-  other="$(awk -v pkg="${PACKAGE}" -v ns="${NAMESPACE}/" '$2==pkg && index($1, ns)!=1 {print $1}' <<<"${rows}")"
-  [[ -z "${other}" ]] || die "incompatible: Dev Spaces is already subscribed outside ${NAMESPACE} (${other//$'\n'/, })"
+  other="$(awk -v pkg="${PACKAGE}" -v ns="${DEVSPACES_NS}/" '$2==pkg && index($1, ns)!=1 {print $1}' <<<"${rows}")"
+  [[ -z "${other}" ]] || die "incompatible: Dev Spaces is already subscribed outside ${DEVSPACES_NS} (${other//$'\n'/, })"
   if awk -v pkg="${PACKAGE}" '$2==pkg {f=1} END{exit !f}' <<<"${rows}"; then HAVE_SUB=1; fi
 
-  # CheClusters: at most one per cluster, and it must be ${NAMESPACE}/${CHECLUSTER}.
+  # CheClusters: at most one per cluster, and it must be ${DEVSPACES_NS}/${CHECLUSTER}.
   rows="$(oc get checluster.org.eclipse.che -A \
     -o 'jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}' 2>/dev/null || true)"
-  other="$(grep -v "^${NAMESPACE}/${CHECLUSTER}\$" <<<"${rows}" | sed '/^$/d' || true)"
+  other="$(grep -v "^${DEVSPACES_NS}/${CHECLUSTER}\$" <<<"${rows}" | sed '/^$/d' || true)"
   [[ -z "${other}" ]] || die "incompatible: another CheCluster exists (${other//$'\n'/, }); only one is supported per cluster"
   [[ -z "${rows}" ]] || HAVE_CHE=1
 
-  if oc get namespace "${NAMESPACE}" >/dev/null 2>&1; then
+  if oc get namespace "${DEVSPACES_NS}" >/dev/null 2>&1; then
     HAVE_NS=1
-    og="$(oc -n "${NAMESPACE}" get operatorgroup.operators.coreos.com \
+    og="$(oc -n "${DEVSPACES_NS}" get operatorgroup.operators.coreos.com \
       -o 'jsonpath={range .items[*]}{.metadata.name}|{.spec.targetNamespaces[*]}|{.spec.selector}{"\n"}{end}' 2>/dev/null || true)"
     og="$(sed '/^$/d' <<<"${og}")"
     if [[ -n "${og}" ]]; then
       n="$(wc -l <<<"${og}" | tr -d ' ')"
-      [[ "${n}" -eq 1 ]] || die "incompatible: ${n} OperatorGroups in ${NAMESPACE} (OLM requires exactly one)"
+      [[ "${n}" -eq 1 ]] || die "incompatible: ${n} OperatorGroups in ${DEVSPACES_NS} (OLM requires exactly one)"
       [[ "${og}" == *"||" ]] \
-        || die "incompatible: OperatorGroup in ${NAMESPACE} is not AllNamespaces (${og%%|*} has targetNamespaces or a selector)"
+        || die "incompatible: OperatorGroup in ${DEVSPACES_NS} is not AllNamespaces (${og%%|*} has targetNamespaces or a selector)"
       HAVE_OG=1
     fi
   fi
@@ -71,10 +75,10 @@ detect_existing() {
 
 ensure_namespace() {
   if [[ "${HAVE_NS}" -eq 1 ]]; then
-    log_success "Namespace ${NAMESPACE} exists"
+    log_success "Namespace ${DEVSPACES_NS} exists"
   else
-    oc create namespace "${NAMESPACE}" >/dev/null || die "could not create namespace ${NAMESPACE}"
-    log_success "Namespace ${NAMESPACE} created"
+    oc create namespace "${DEVSPACES_NS}" >/dev/null || die "could not create namespace ${DEVSPACES_NS}"
+    log_success "Namespace ${DEVSPACES_NS} created"
   fi
 }
 
@@ -88,7 +92,7 @@ apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   name: ${OPERATORGROUP}
-  namespace: ${NAMESPACE}
+  namespace: ${DEVSPACES_NS}
 spec: {}
 YAML
   log_success "OperatorGroup ${OPERATORGROUP} created (AllNamespaces)"
@@ -97,7 +101,7 @@ YAML
 ensure_subscription() {
   if [[ "${HAVE_SUB}" -eq 1 ]]; then
     local cur
-    cur="$(oc -n "${NAMESPACE}" get subscriptions.operators.coreos.com -o \
+    cur="$(oc -n "${DEVSPACES_NS}" get subscriptions.operators.coreos.com -o \
       'jsonpath={range .items[?(@.spec.name=="'"${PACKAGE}"'")]}{.spec.channel}/{.spec.source}{"\n"}{end}' 2>/dev/null | head -n1 || true)"
     [[ "${cur}" == "${CHANNEL}/${CATALOG}" ]] \
       || log_warn "Existing Subscription uses ${cur:-unknown} (expected ${CHANNEL}/${CATALOG}); keeping it unchanged"
@@ -109,7 +113,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: ${PACKAGE}
-  namespace: ${NAMESPACE}
+  namespace: ${DEVSPACES_NS}
 spec:
   name: ${PACKAGE}
   channel: ${CHANNEL}
@@ -121,19 +125,19 @@ YAML
 }
 
 sub_csv() {
-  oc -n "${NAMESPACE}" get subscriptions.operators.coreos.com -o \
+  oc -n "${DEVSPACES_NS}" get subscriptions.operators.coreos.com -o \
     'jsonpath={range .items[?(@.spec.name=="'"${PACKAGE}"'")]}{.status.installedCSV}{end}' 2>/dev/null
 }
 have_sub_csv() { [[ -n "$(sub_csv)" ]]; }
-csv_succeeded() { [[ "$(oc -n "${NAMESPACE}" get csv "$1" -o 'jsonpath={.status.phase}' 2>/dev/null)" == "Succeeded" ]]; }
+csv_succeeded() { [[ "$(oc -n "${DEVSPACES_NS}" get csv "$1" -o 'jsonpath={.status.phase}' 2>/dev/null)" == "Succeeded" ]]; }
 
 wait_csv() {
   local csv
   wait_until 300 have_sub_csv \
-    || die "OLM did not resolve an installed CSV in 5 min (oc -n ${NAMESPACE} describe subscription)"
+    || die "OLM did not resolve an installed CSV in 5 min (oc -n ${DEVSPACES_NS} describe subscription)"
   csv="$(sub_csv)"
   wait_until 600 csv_succeeded "${csv}" \
-    || die "CSV ${csv} did not reach Succeeded in 10 min (phase: $(oc -n "${NAMESPACE}" get csv "${csv}" -o 'jsonpath={.status.phase}' 2>/dev/null || echo unknown)); see 'oc -n ${NAMESPACE} get pods,installplan'"
+    || die "CSV ${csv} did not reach Succeeded in 10 min (phase: $(oc -n "${DEVSPACES_NS}" get csv "${csv}" -o 'jsonpath={.status.phase}' 2>/dev/null || echo unknown)); see 'oc -n ${DEVSPACES_NS} get pods,installplan'"
   log_success "Dev Spaces CSV Succeeded (${csv})"
 }
 
@@ -156,7 +160,7 @@ apiVersion: org.eclipse.che/v2
 kind: CheCluster
 metadata:
   name: ${CHECLUSTER}
-  namespace: ${NAMESPACE}
+  namespace: ${DEVSPACES_NS}
 spec: {}
 YAML
 }
@@ -172,14 +176,14 @@ ensure_checluster() {
   log_success "CheCluster ${CHECLUSTER} created"
 }
 
-che_phase() { oc -n "${NAMESPACE}" get checluster "${CHECLUSTER}" -o 'jsonpath={.status.chePhase}' 2>/dev/null; }
+che_phase() { oc -n "${DEVSPACES_NS}" get checluster "${CHECLUSTER}" -o 'jsonpath={.status.chePhase}' 2>/dev/null; }
 che_active() { [[ "$(che_phase)" == "Active" ]]; }
 
 wait_checluster() {
   if ! wait_until 900 che_active; then
-    log_error "CheCluster phase: $(che_phase || true) — $(oc -n "${NAMESPACE}" get checluster "${CHECLUSTER}" -o 'jsonpath={.status.message} {.status.reason}' 2>/dev/null || true)"
-    log_error "Pods in ${NAMESPACE}:"
-    oc -n "${NAMESPACE}" get pods --no-headers 2>&1 | log_stream || true
+    log_error "CheCluster phase: $(che_phase || true) — $(oc -n "${DEVSPACES_NS}" get checluster "${CHECLUSTER}" -o 'jsonpath={.status.message} {.status.reason}' 2>/dev/null || true)"
+    log_error "Pods in ${DEVSPACES_NS}:"
+    oc -n "${DEVSPACES_NS}" get pods --no-headers 2>&1 | log_stream || true
     exit 1
   fi
   log_success "CheCluster Active"
@@ -187,9 +191,9 @@ wait_checluster() {
 
 dashboard_url() {
   local url host
-  url="$(oc -n "${NAMESPACE}" get checluster "${CHECLUSTER}" -o 'jsonpath={.status.cheURL}' 2>/dev/null || true)"
+  url="$(oc -n "${DEVSPACES_NS}" get checluster "${CHECLUSTER}" -o 'jsonpath={.status.cheURL}' 2>/dev/null || true)"
   if [[ -z "${url}" ]]; then
-    host="$(oc -n "${NAMESPACE}" get route "${CHECLUSTER}" -o 'jsonpath={.spec.host}' 2>/dev/null || true)"
+    host="$(oc -n "${DEVSPACES_NS}" get route "${CHECLUSTER}" -o 'jsonpath={.spec.host}' 2>/dev/null || true)"
     [[ -z "${host}" ]] || url="https://${host}"
   fi
   [[ -n "${url}" ]] || die "CheCluster is Active but no dashboard URL was found"

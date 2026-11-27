@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# setup/install-cnp-cli.sh
 # Install the EDB CloudNativePG kubectl plugin (kubectl-cnp) into $HOME/bin, without sudo.
-# Usage: ./setup/install-cnp-cli.sh
-# Local only: needs no cluster. Never edits shell configuration files.
+# Prerequisites: curl. Local only: needs no cluster. Never edits shell configuration files.
 # Not the community plugin: that one is kubectl-cnpg and is a different tool.
+# Usage: ./setup/install-cnp-cli.sh
+# -----------------------------------------------------------------------------
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
