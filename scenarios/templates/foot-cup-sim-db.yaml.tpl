@@ -6,6 +6,7 @@
 # run starts from the original tournament. It runs as the application role "app": it checks that this role owns schema public
 # (or is a member of its owner) and can create schemas, and stops with an explanation otherwise. No superuser is used.
 # The reset and the restore are each one transaction; if the restore fails the schema is left empty: delete the Job and run again.
+# SQL note: Kubernetes turns "$$" in a container command into "$", so the DO block uses the tagged quote $do$ ... $do$.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -47,12 +48,12 @@ spec:
               set -e
               echo "Resetting schema public in the app database..."
               psql "$URI" -v ON_ERROR_STOP=1 --single-transaction <<'SQL'
-              DO $$ BEGIN
+              DO $do$ BEGIN
                 IF NOT (pg_has_role(current_user, (SELECT nspowner FROM pg_namespace WHERE nspname = 'public'), 'USAGE')
                         AND has_database_privilege(current_database(), 'CREATE')) THEN
                   RAISE EXCEPTION 'role % must own schema public (or be a member of its owner) and have CREATE on database %', current_user, current_database();
                 END IF;
-              END $$;
+              END $do$;
               DROP SCHEMA public CASCADE;
               CREATE SCHEMA public;
               GRANT USAGE ON SCHEMA public TO PUBLIC;
