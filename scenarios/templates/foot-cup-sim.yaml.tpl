@@ -1,8 +1,7 @@
-# Foot Cup Sim: one file, one section per component (applied with: oc apply -f <file> -l app.kubernetes.io/component=<name>).
+# Foot Cup Sim, application: PostgREST, the REST API generated from the PostgreSQL schema.
 # Rendered by setup/init-workshop.sh with envsubst: only ${CLUSTER_NAME} and ${NAMESPACE} are substituted.
-# Routes are not here: they are created with "oc create route", and their URLs are discovered from OpenShift.
+# Not here: the Route, created with "oc create route" (its URL is discovered from OpenShift).
 #
-# --- PostgREST: REST API generated from the PostgreSQL schema (Phase 1) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,7 +9,6 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app.kubernetes.io/part-of: foot-cup-sim
-    app.kubernetes.io/component: postgrest
 spec:
   replicas: 1
   selector:
@@ -77,7 +75,6 @@ metadata:
   namespace: ${NAMESPACE}
   labels:
     app.kubernetes.io/part-of: foot-cup-sim
-    app.kubernetes.io/component: postgrest
 spec:
   selector:
     app: postgrest
@@ -85,4 +82,4 @@ spec:
     - name: http
       port: 3000
       targetPort: http
-# --- Phase 2 sections go below, each with its own component label: database-init (Job), swagger-ui, worldcup-ui ---
+# Swagger UI and the React UI will be added below.
