@@ -145,8 +145,10 @@ ui_info "Verify the CORS preflight sent by Swagger UI"
 ui_command "curl -sk -i -X OPTIONS ${API_URL}/teams -H \"Origin: ${SWAGGER_URL}\" -H \"Access-Control-Request-Method: GET\" | grep -i access-control-allow"
 ui_pause
 
+ui_success "Important : First Open PostgREST API URL and accept local certificate in you browser"
+ui_success "Then open Swagger and Foot Cup Sim or refresh ... Enjoy "
 ui_success "PostgREST API: ${API_URL}"
 ui_success "Swagger UI:    ${SWAGGER_URL}"
 ui_success "Foot Cup Sim:  ${UI_URL}"
-ui_info "Open Foot Cup Sim in your browser and launch the simulations"
+
 ui_pause
